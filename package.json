@@ -1,0 +1,32 @@
+{
+  "name": "bot-mia-whatsapp",
+  "version": "1.0.0",
+  "description": "Bot MIA - Agente de Objeções WhatsApp Blindado",
+  "main": "bot-mia-servidor.js",
+  "scripts": {
+    "start": "node bot-mia-servidor.js",
+    "dev": "nodemon bot-mia-servidor.js"
+  },
+  "keywords": [
+    "whatsapp",
+    "bot",
+    "vendas",
+    "objeções",
+    "claude",
+    "z-api"
+  ],
+  "author": "Katia Lutz",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "axios": "^1.6.2",
+    "sqlite3": "^5.1.6",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
