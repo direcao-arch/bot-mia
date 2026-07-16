@@ -276,7 +276,7 @@ PASSO 5: VARIÁVEIS DE AMBIENTE (No Railway)
 2. Aba: "Variables"
 3. Adicione:
 
-CLAUDE_API_KEY=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
+CLAUDE_API_KEY=sk-ant-[sua-chave-aqui]
 ZAPI_INSTANCE=0
 ZAPI_TOKEN=test-token
 PORT=3000
