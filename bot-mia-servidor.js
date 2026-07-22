@@ -25,8 +25,27 @@ SEM dicas, SEM explicações, SEM parágrafos extras.
 CONTATOS: 1=Boas-vindas 2=Alt.horário 3=Áudio 4=Áudio 5=Escassez 6=Ligação 7=Valor 8=Despedida`;
 
 // ============ CHAMAR CLAUDE ============
-async function gerarRespostaMIA(mensagem) {
+async function gerarRespostaMIA(mensagem, imagemUrl = null) {
   try {
+    let content = [];
+    
+    // Adiciona imagem se houver
+    if (imagemUrl) {
+      content.push({
+        type: "image",
+        source: {
+          type: "url",
+          url: imagemUrl,
+        },
+      });
+    }
+    
+    // Adiciona texto com prompt
+    content.push({
+      type: "text",
+      text: `${PROMPT_MIA}\n\n--- MENSAGEM DO VENDEDOR ---\n${mensagem}`,
+    });
+
     const response = await axios.post(
       "https://api.anthropic.com/v1/messages",
       {
@@ -35,7 +54,7 @@ async function gerarRespostaMIA(mensagem) {
         messages: [
           {
             role: "user",
-            content: `${PROMPT_MIA}\n\n--- MENSAGEM DO VENDEDOR ---\n${mensagem}`,
+            content: content,
           },
         ],
       },
@@ -100,11 +119,18 @@ app.post("/webhook/zapi", async (req, res) => {
 
     console.log(`📱 Phone: ${phone}`);
 
-    // Extrai mensagem - tenta TODOS os campos
+    // Extrai mensagem ou imagem
     let mensagem = null;
+    let imagemUrl = null;
 
+    // Verifica se é IMAGEM
+    if (req.body.image?.imageUrl) {
+      imagemUrl = req.body.image.imageUrl;
+      mensagem = req.body.image.caption || "Vendedor enviou uma imagem";
+      console.log(`📸 Imagem recebida: ${imagemUrl}`);
+    }
     // Tenta text como string
-    if (typeof req.body.text === 'string') {
+    else if (typeof req.body.text === 'string') {
       mensagem = req.body.text;
       console.log(`✅ Obtido de: text (string)`);
     }
@@ -133,7 +159,7 @@ app.post("/webhook/zapi", async (req, res) => {
 
     // Processa com Claude
     console.log(`🤖 Processando com Claude...`);
-    const resposta = await gerarRespostaMIA(mensagem);
+    const resposta = await gerarRespostaMIA(mensagem, imagemUrl);
     console.log(`✅ Claude respondeu (${resposta.length} chars)`);
 
     // Envia via Z-API
