@@ -228,16 +228,17 @@ app.post("/webhook/zapi", async (req, res) => {
       return res.status(400).json({ error: "Telefone não encontrado" });
     }
 
-    // SEGUNDO: procura por TEXTO
+    // SEGUNDO: procura por TEXTO (prioritário)
     if (req.body.text) {
       objecao = req.body.text;
       console.log(`📩 Texto recebido de ${phone}: ${objecao}`);
     } 
-    // Se for IMAGEM
+    // Se for IMAGEM (temporariamente, responder com contexto genérico)
     else if (req.body.image?.imageUrl) {
       imagemUrl = req.body.image.imageUrl;
-      objecao = req.body.image.caption || "Vendedor enviou print";
-      console.log(`📸 Imagem recebida de ${phone}: ${imagemUrl}`);
+      // Por enquanto, responder genericamente para imagem
+      objecao = "Vendedor enviou um print para análise";
+      console.log(`📸 Imagem recebida de ${phone} (Claude Vision em desenvolvimento)`);
     }
     // Fallback: messages array
     else if (req.body.messages?.[0]?.text) {
