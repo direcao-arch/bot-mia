@@ -163,20 +163,49 @@ Opção 2:
 
 Não dá aula, não julga vendedor, não inventa contatos, não nega preço.`;
 
-// ============ CHAMADA CLAUDE API ============
-async function gerarRespostaMIA(objecao) {
+// ============ CHAMADA CLAUDE API (com suporte a imagens) ============
+async function gerarRespostaMIA(objecao, imagemUrl = null) {
   try {
+    let messages = [];
+
+    if (imagemUrl) {
+      // Se tiver imagem, processa como visão
+      console.log(`📸 Analisando print: ${imagemUrl}`);
+      
+      messages = [
+        {
+          role: "user",
+          content: [
+            {
+              type: "image",
+              source: {
+                type: "url",
+                url: imagemUrl,
+              },
+            },
+            {
+              type: "text",
+              text: `${PROMPT_MIA}\n\n--- PRINT DO VENDEDOR ---\nAnalise esse print de conversa com cliente e identifique em qual contato estamos. Depois responda com as opções prontas.\n\nContexto adicional: ${objecao || "Vendedor enviou print da conversa"}`,
+            },
+          ],
+        },
+      ];
+    } else {
+      // Se for só texto
+      messages = [
+        {
+          role: "user",
+          content: `${PROMPT_MIA}\n\n--- MENSAGEM DO VENDEDOR ---\n${objecao}`,
+        },
+      ];
+    }
+
     const response = await axios.post(
       "https://api.anthropic.com/v1/messages",
       {
         model: "claude-opus-4-8",
         max_tokens: 1500,
-        messages: [
-          {
-            role: "user",
-            content: `${PROMPT_MIA}\n\n--- MENSAGEM DO VENDEDOR ---\n${objecao}`,
-          },
-        ],
+        messages: messages,
       },
       {
         headers: {
@@ -219,34 +248,52 @@ app.post("/webhook/zapi", async (req, res) => {
     // Aceita múltiplos formatos de Z-API
     let objecao = null;
     let phone = null;
+    let imagemUrl = null;
 
     // Formato 1: { messages: [{ text: "..." }], phone: "..." }
     if (req.body.messages && req.body.messages[0]) {
       objecao = req.body.messages[0].text;
+      imagemUrl = req.body.messages[0].image?.url;
       phone = req.body.phone;
     }
     
-    // Formato 2: { message: "...", phone: "..." }
+    // Formato 2: { message: "...", phone: "...", image: "..." }
     if (!objecao && req.body.message) {
       objecao = req.body.message;
+      imagemUrl = req.body.image || req.body.imageUrl;
       phone = req.body.phone;
     }
 
     // Formato 3: { text: "...", phone: "..." }
     if (!objecao && req.body.text) {
       objecao = req.body.text;
+      imagemUrl = req.body.image || req.body.imageUrl;
       phone = req.body.phone;
     }
 
-    if (!objecao || !phone) {
-      console.error("❌ Formato inválido. Body:", req.body);
-      return res.status(400).json({ error: "Formato inválido. Esperado: {message: string, phone: string}" });
+    // Se tiver imagem mas não tiver texto, usa descrição genérica
+    if (imagemUrl && !objecao) {
+      objecao = "Vendedor enviou print";
     }
 
-    console.log(`📩 Mensagem recebida de ${phone}: ${objecao}`);
+    if (!phone) {
+      console.error("❌ Telefone não encontrado. Body:", req.body);
+      return res.status(400).json({ error: "Telefone não encontrado" });
+    }
 
-    // Gera resposta com a MIA
-    const resposta = await gerarRespostaMIA(objecao);
+    if (!objecao && !imagemUrl) {
+      console.error("❌ Mensagem ou imagem não encontrada. Body:", req.body);
+      return res.status(400).json({ error: "Mensagem ou imagem não encontrada" });
+    }
+
+    if (imagemUrl) {
+      console.log(`📸 Print recebido de ${phone}: ${imagemUrl}`);
+    } else {
+      console.log(`📩 Mensagem recebida de ${phone}: ${objecao}`);
+    }
+
+    // Gera resposta com a MIA (pode ser texto ou imagem)
+    const resposta = await gerarRespostaMIA(objecao, imagemUrl);
     console.log(`✏️ Resposta gerada:\n${resposta}`);
 
     // Envia via WhatsApp
@@ -256,13 +303,13 @@ app.post("/webhook/zapi", async (req, res) => {
     db.run(
       `INSERT INTO historico (phone, objecao, resposta, timestamp) 
        VALUES (?, ?, ?, datetime('now'))`,
-      [phone, objecao, resposta],
+      [phone, imagemUrl || objecao, resposta],
       (err) => {
         if (err) console.error("Erro ao salvar histórico:", err);
       }
     );
 
-    res.json({ success: true, resposta });
+    res.json({ success: true, resposta, tipo: imagemUrl ? "imagem" : "texto" });
   } catch (error) {
     console.error("Erro no webhook:", error.message);
     res.status(500).json({
