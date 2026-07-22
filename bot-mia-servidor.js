@@ -214,13 +214,35 @@ async function enviarResposta(phone, mensagem) {
 // ============ WEBHOOK Z-API ============
 app.post("/webhook/zapi", async (req, res) => {
   try {
-    const { messages, phone } = req.body;
+    console.log(`📊 Webhook recebeu: ${JSON.stringify(req.body)}`);
+    
+    // Aceita múltiplos formatos de Z-API
+    let objecao = null;
+    let phone = null;
 
-    if (!messages || !messages[0]) {
-      return res.status(400).json({ error: "Sem mensagem" });
+    // Formato 1: { messages: [{ text: "..." }], phone: "..." }
+    if (req.body.messages && req.body.messages[0]) {
+      objecao = req.body.messages[0].text;
+      phone = req.body.phone;
+    }
+    
+    // Formato 2: { message: "...", phone: "..." }
+    if (!objecao && req.body.message) {
+      objecao = req.body.message;
+      phone = req.body.phone;
     }
 
-    const objecao = messages[0].text;
+    // Formato 3: { text: "...", phone: "..." }
+    if (!objecao && req.body.text) {
+      objecao = req.body.text;
+      phone = req.body.phone;
+    }
+
+    if (!objecao || !phone) {
+      console.error("❌ Formato inválido. Body:", req.body);
+      return res.status(400).json({ error: "Formato inválido. Esperado: {message: string, phone: string}" });
+    }
+
     console.log(`📩 Mensagem recebida de ${phone}: ${objecao}`);
 
     // Gera resposta com a MIA
