@@ -216,31 +216,30 @@ app.post("/webhook/zapi", async (req, res) => {
   try {
     console.log(`📊 Webhook recebeu: ${JSON.stringify(req.body)}`);
     
-    // Aceita múltiplos formatos de Z-API
     let objecao = null;
     let phone = null;
 
-    // Formato 1: { messages: [{ text: "..." }], phone: "..." }
-    if (req.body.messages && req.body.messages[0]) {
-      objecao = req.body.messages[0].text;
-      phone = req.body.phone;
+    // Formato Z-API CORRETO (conforme logs)
+    if (req.body.text) {
+      objecao = req.body.text;
+      phone = req.body.phone || req.body.connectedPhone || req.body.chatId?.split('@')[0];
     }
     
-    // Formato 2: { message: "...", phone: "..." }
+    // Alternativa: messages array
+    if (!objecao && req.body.messages && req.body.messages[0]) {
+      objecao = req.body.messages[0].text;
+      phone = req.body.phone || req.body.connectedPhone;
+    }
+    
+    // Fallback: message field
     if (!objecao && req.body.message) {
       objecao = req.body.message;
-      phone = req.body.phone;
-    }
-
-    // Formato 3: { text: "...", phone: "..." }
-    if (!objecao && req.body.text) {
-      objecao = req.body.text;
-      phone = req.body.phone;
+      phone = req.body.phone || req.body.connectedPhone;
     }
 
     if (!objecao || !phone) {
-      console.error("❌ Formato inválido. Body:", req.body);
-      return res.status(400).json({ error: "Formato inválido. Esperado: {message: string, phone: string}" });
+      console.error("❌ Telefone ou mensagem não encontrados. Body:", req.body);
+      return res.status(400).json({ error: "Telefone ou mensagem não encontrados" });
     }
 
     console.log(`📩 Mensagem recebida de ${phone}: ${objecao}`);
