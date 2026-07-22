@@ -214,35 +214,46 @@ async function enviarResposta(phone, mensagem) {
 // ============ WEBHOOK Z-API ============
 app.post("/webhook/zapi", async (req, res) => {
   try {
-    console.log(`📊 Webhook recebeu: ${JSON.stringify(req.body)}`);
+    console.log(`📊 Webhook recebeu. Procurando phone e mensagem...`);
     
     let objecao = null;
     let phone = null;
+    let imagemUrl = null;
 
-    // Formato Z-API CORRETO (conforme logs)
+    // PRIMEIRO: procura o PHONE (campo mais importante)
+    phone = req.body.phone || req.body.connectedPhone;
+    
+    if (!phone) {
+      console.error("❌ Telefone não encontrado no webhook");
+      return res.status(400).json({ error: "Telefone não encontrado" });
+    }
+
+    // SEGUNDO: procura por TEXTO
     if (req.body.text) {
       objecao = req.body.text;
-      phone = req.body.phone || req.body.connectedPhone || req.body.chatId?.split('@')[0];
+      console.log(`📩 Texto recebido de ${phone}: ${objecao}`);
+    } 
+    // Se for IMAGEM
+    else if (req.body.image?.imageUrl) {
+      imagemUrl = req.body.image.imageUrl;
+      objecao = req.body.image.caption || "Vendedor enviou print";
+      console.log(`📸 Imagem recebida de ${phone}: ${imagemUrl}`);
     }
-    
-    // Alternativa: messages array
-    if (!objecao && req.body.messages && req.body.messages[0]) {
+    // Fallback: messages array
+    else if (req.body.messages?.[0]?.text) {
       objecao = req.body.messages[0].text;
-      phone = req.body.phone || req.body.connectedPhone;
+      console.log(`📩 Mensagem array recebida de ${phone}: ${objecao}`);
     }
-    
     // Fallback: message field
-    if (!objecao && req.body.message) {
+    else if (req.body.message) {
       objecao = req.body.message;
-      phone = req.body.phone || req.body.connectedPhone;
+      console.log(`📩 Message field recebido de ${phone}: ${objecao}`);
     }
 
-    if (!objecao || !phone) {
-      console.error("❌ Telefone ou mensagem não encontrados. Body:", req.body);
-      return res.status(400).json({ error: "Telefone ou mensagem não encontrados" });
+    if (!objecao) {
+      console.error("❌ Nenhuma mensagem ou imagem encontrada");
+      return res.status(400).json({ error: "Nenhuma mensagem ou imagem encontrada" });
     }
-
-    console.log(`📩 Mensagem recebida de ${phone}: ${objecao}`);
 
     // Gera resposta com a MIA
     const resposta = await gerarRespostaMIA(objecao);
@@ -255,13 +266,13 @@ app.post("/webhook/zapi", async (req, res) => {
     db.run(
       `INSERT INTO historico (phone, objecao, resposta, timestamp) 
        VALUES (?, ?, ?, datetime('now'))`,
-      [phone, objecao, resposta],
+      [phone, imagemUrl || objecao, resposta],
       (err) => {
         if (err) console.error("Erro ao salvar histórico:", err);
       }
     );
 
-    res.json({ success: true, resposta });
+    res.json({ success: true, resposta, tipo: imagemUrl ? "imagem" : "texto" });
   } catch (error) {
     console.error("Erro no webhook:", error.message);
     res.status(500).json({
