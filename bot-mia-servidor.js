@@ -257,23 +257,36 @@ app.post("/webhook/zapi", async (req, res) => {
     }
 
     // Gera resposta com a MIA
-    const resposta = await gerarRespostaMIA(objecao);
-    console.log(`✏️ Resposta gerada:\n${resposta}`);
+    try {
+      console.log(`🤖 Chamando Claude API para processar: ${objecao.substring(0, 50)}...`);
+      const resposta = await gerarRespostaMIA(objecao);
+      console.log(`✏️ Resposta gerada com sucesso (${resposta.length} caracteres)`);
+      
+      // Envia via WhatsApp
+      console.log(`📤 Enviando para WhatsApp: ${phone}`);
+      await enviarResposta(phone, resposta);
+      console.log(`✅ Resposta enviada com sucesso para ${phone}`);
 
-    // Envia via WhatsApp
-    await enviarResposta(phone, resposta);
+      // Salva no histórico
+      db.run(
+        `INSERT INTO historico (phone, objecao, resposta, timestamp) 
+         VALUES (?, ?, ?, datetime('now'))`,
+        [phone, imagemUrl || objecao, resposta],
+        (err) => {
+          if (err) console.error("Erro ao salvar histórico:", err);
+          else console.log("✅ Histórico salvo");
+        }
+      );
 
-    // Salva no histórico
-    db.run(
-      `INSERT INTO historico (phone, objecao, resposta, timestamp) 
-       VALUES (?, ?, ?, datetime('now'))`,
-      [phone, imagemUrl || objecao, resposta],
-      (err) => {
-        if (err) console.error("Erro ao salvar histórico:", err);
-      }
-    );
-
-    res.json({ success: true, resposta, tipo: imagemUrl ? "imagem" : "texto" });
+      res.json({ success: true, resposta, tipo: imagemUrl ? "imagem" : "texto" });
+    } catch (claudeError) {
+      console.error("❌ ERRO ao chamar Claude API:", claudeError.message);
+      console.error("Stack:", claudeError.stack);
+      res.status(500).json({
+        error: "Erro ao processar com Claude",
+        details: claudeError.message,
+      });
+    }
   } catch (error) {
     console.error("Erro no webhook:", error.message);
     res.status(500).json({
