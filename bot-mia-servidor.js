@@ -197,16 +197,35 @@ async function gerarRespostaMIA(objecao) {
 // ============ ENVIAR VIA Z-API ============
 async function enviarResposta(phone, mensagem) {
   try {
+    // Garante formato correto do phone para Z-API
+    let phoneFormatado = phone.toString().trim();
+    
+    // Se não começar com +55, adiciona
+    if (!phoneFormatado.startsWith('+55') && !phoneFormatado.startsWith('55')) {
+      phoneFormatado = '55' + phoneFormatado;
+    }
+    
+    // Remove caracteres especiais se houver
+    phoneFormatado = phoneFormatado.replace(/[^0-9+]/g, '');
+    
+    console.log(`📤 Formatando phone para Z-API: ${phone} → ${phoneFormatado}`);
+    
     const zapiUrl = `https://api.z-api.io/instances/${process.env.ZAPI_INSTANCE}/token/${process.env.ZAPI_TOKEN}/send-text`;
+    
+    console.log(`🌐 URL Z-API: ${zapiUrl}`);
+    console.log(`📝 Payload: { phone: "${phoneFormatado}", message: "${mensagem.substring(0, 50)}..." }`);
 
-    await axios.post(zapiUrl, {
-      phone: phone,
+    const response = await axios.post(zapiUrl, {
+      phone: phoneFormatado,
       message: mensagem,
     });
 
-    console.log(`✅ Resposta enviada para ${phone}`);
+    console.log(`✅ Resposta enviada com sucesso para ${phoneFormatado} | Status: ${response.status}`);
   } catch (error) {
-    console.error("Erro ao enviar via Z-API:", error.message);
+    console.error("❌ Erro ao enviar via Z-API:", error.message);
+    if (error.response?.data) {
+      console.error("📊 Response data:", JSON.stringify(error.response.data));
+    }
     throw error;
   }
 }
