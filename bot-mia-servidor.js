@@ -130,10 +130,18 @@ async function enviarZ(phone, mensagem) {
 
     console.log(`📤 Enviando para Z-API... [${p}]`);
     
-    const res = await axios.post(url, {
-      phone: p,
-      message: mensagem,
-    });
+    const res = await axios.post(
+      url,
+      {
+        phone: p,
+        message: mensagem,
+      },
+      {
+        headers: {
+          "Client-Token": process.env.ZAPI_CLIENT_TOKEN,
+        },
+      }
+    );
 
     console.log(`✅ Enviado com sucesso!`);
   } catch (error) {
