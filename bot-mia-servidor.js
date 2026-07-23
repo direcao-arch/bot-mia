@@ -13,35 +13,29 @@ app.use(express.json());
 // ============ PROMPT ============
 const PROMPT_MIA = `Você é MIA — consultora de vendas (braço direito) de óticas, ferramenta proprietária de Lumen + OFC.
 
+REGRA DE OURO: SEJA BREVE. Isso é WhatsApp, não relatório. Máximo 5-6 linhas no total. Tom casual, direto, de colega pra colega — nunca formal, nunca institucional, nunca com títulos ou bullet points de curso.
+
 REGRA 1: SE FALTA CONTEXTO → PERGUNTA DIAGNÓSTICA
 Pergunta rapidinho (1 linha) pra entender melhor. Ex: "Há quanto tempo parou?" "Qual é a real objeção?"
+Nada mais nessa resposta — só a pergunta, sem adiantar conteúdo.
 
-REGRA 2: SE TEM CONTEXTO → MÚLTIPLAS ABORDAGENS
-Dê 2-3 opções diferentes de mensagem, cada uma atacando um ângulo:
-- Opção A: [uma abordagem]
-- Opção B: [outra abordagem]
-- Opção C: [terceira abordagem se relevante]
+REGRA 2: SE TEM CONTEXTO → NO MÁXIMO 2 OPÇÕES DE MENSAGEM
+Cada opção: 1-2 frases curtas, prontas pra copiar e colar no WhatsApp.
+- Opção A: [mensagem curta]
+- Opção B: [mensagem curta, ângulo diferente]
 
-REGRA 3: SEMPRE MENTORIAS RÁPIDAS
-Depois das opções, 1-2 linhas explicando POR QUE funciona (psicologia, não apenas técnica). Use como fonte os princípios abaixo — no máximo 1-2 por resposta, nunca todos de uma vez:
-- Amortecimento: valide/acolha a objeção antes de contornar, nunca reaja na defensiva. Objeção vaga ("vou pensar") pede pergunta objetiva sobre o que falta decidir.
-- Nunca ofereça desconto como primeira resposta a objeção de preço — valor e diferencial primeiro; desconto só dentro do teto de autonomia do vendedor, nunca inventado na hora.
-- Todo recontato precisa de um motivo concreto e específico — nunca sugira mensagem genérica repetida entre clientes diferentes.
-- Alecrim Dourado: trate o lead como o cliente mais exigente possível — nunca entregue resposta "morna".
-- Anamnese antes de vender: se falta entender a necessidade real do cliente (o que ele já usa, o que o incomoda), sugira uma pergunta de descoberta antes de argumento de produto/preço.
-- Postura de coadjuvante: ouvir mais e protagonizar menos revela a informação que destrava a venda.
-- Fidelização/pós-venda: se a venda já fechou ou está prestes a fechar, sugira o gancho de acompanhamento em 15-30 dias (checar adaptação, oferecer manutenção) e pedido de indicação/avaliação no pico de satisfação.
-- Responsabilidade individual: o atendimento do vendedor é o fator decisivo mais citado no sucesso — não é só sobre a qualidade do lead.
-- Venda x negociação: gerar desejo (venda) vem antes de fechar condições de pagamento (negociação) — não pule pro preço antes de gerar valor percebido.
+REGRA 3: NO MÁXIMO 1 LINHA DE MENTORIA (opcional, use raramente)
+Só inclua se agregar de verdade — na maioria das vezes, omita. Se incluir, é 1 frase curta puxando UM destes princípios (nunca mais de um, nunca em parágrafo):
+amortecimento (acolher antes de contornar) · nunca desconto primeiro · motivo concreto pro recontato · tratar o lead como VIP · entender a necessidade antes de vender · ouvir mais, falar menos · pós-venda em 15-30 dias fideliza mais que promoção · o atendimento individual decide a venda · venda (gerar desejo) vem antes de negociação (fechar condição).
 
 REGRA 4: PERGUNTA SOBRE CONTEXTO SE RELEVANTE
-Se acha que falta info: "Quanto é o ticket? Primeira venda ou retenção? Lead qualificado?" (Max 1 linha)
+Se faltar um dado prático (ticket, primeira venda ou retenção, lead qualificado), pergunte em 1 linha só.
 
 OS 8 CONTATOS (referência interna, NÃO cite como "Contato X" nas respostas):
 1=Boas-vindas+qualif 2=Alt.horário 3=Abertura áudio 4=Áudio explicativo 5=Escassez 6=Ligação 7=Valor+conforto 8=Despedida
-A maioria das vendas só se concretiza a partir do 4º/5º contato — não trate um lead como "esfriado demais" antes disso. O WhatsApp existe para trazer o lead pra loja ou pra uma ligação/áudio, não pra fechar a venda sozinho.
+A maioria das vendas só se concretiza a partir do 4º/5º contato.
 
-NÃO responda como "Contato X". Responda como consultora mesmo.`;
+NÃO responda como "Contato X". NÃO use markdown pesado, títulos ou listas longas. Responda como se estivesse digitando rápido pelo celular pra um amigo vendedor.`;
 // ============ CHAMAR CLAUDE ============
 // ============ MEMÓRIA DE CONVERSA (por vendedor/telefone) ============
 const historicos = new Map(); // phone -> { mensagens: [...], atualizadoEm: timestamp }
@@ -88,7 +82,7 @@ async function gerarRespostaMIA(phone, mensagem, imagemUrl = null) {
       "https://api.anthropic.com/v1/messages",
       {
         model: "claude-opus-4-8",
-        max_tokens: 1500,
+        max_tokens: 400,
         system: PROMPT_MIA,
         messages: mensagensParaClaude,
       },
@@ -154,17 +148,40 @@ async function enviarZ(phone, mensagem) {
 }
 
 // ============ WEBHOOK ============
+// ============ DEDUPLICAÇÃO (Z-API às vezes reenvia o mesmo evento) ============
+const mensagensProcessadas = new Set();
+const MENSAGENS_PROCESSADAS_MAX = 500;
+
+function marcarSeNova(messageId) {
+  if (!messageId) return true;
+  if (mensagensProcessadas.has(messageId)) return false;
+  mensagensProcessadas.add(messageId);
+  if (mensagensProcessadas.size > MENSAGENS_PROCESSADAS_MAX) {
+    mensagensProcessadas.delete(mensagensProcessadas.values().next().value);
+  }
+  return true;
+}
+
 app.post("/webhook/zapi", async (req, res) => {
+  // Responde IMEDIATAMENTE pro Z-API não esperar o processamento (Claude + envio)
+  // e reenviar o mesmo evento por timeout.
+  res.status(200).json({ received: true });
+
   try {
-    // Log do que chegou
     console.log(`\n📊 === WEBHOOK RECEBIDO ===`);
     console.log(`Body keys:`, Object.keys(req.body));
+
+    const messageId = req.body.messageId;
+    if (!marcarSeNova(messageId)) {
+      console.log(`⏭️  Duplicata ignorada (messageId: ${messageId})`);
+      return;
+    }
 
     // Extrai phone
     const phone = req.body.phone || req.body.connectedPhone;
     if (!phone) {
       console.error("❌ Phone não encontrado");
-      return res.status(400).json({ error: "Phone não encontrado" });
+      return;
     }
 
     console.log(`📱 Phone: ${phone}`);
@@ -215,12 +232,8 @@ app.post("/webhook/zapi", async (req, res) => {
     // Envia via Z-API
     await enviarZ(phone, resposta);
 
-    // Responde ao webhook
-    res.json({ success: true });
-
   } catch (error) {
     console.error(`\n❌ ERRO NO WEBHOOK:`, error.message);
-    res.status(500).json({ error: error.message });
   }
 });
 
