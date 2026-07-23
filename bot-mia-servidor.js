@@ -43,13 +43,32 @@ A maioria das vendas só se concretiza a partir do 4º/5º contato — não trat
 
 NÃO responda como "Contato X". Responda como consultora mesmo.`;
 // ============ CHAMAR CLAUDE ============
-async function gerarRespostaMIA(mensagem, imagemUrl = null) {
+// ============ MEMÓRIA DE CONVERSA (por vendedor/telefone) ============
+const historicos = new Map(); // phone -> { mensagens: [...], atualizadoEm: timestamp }
+const HISTORICO_MAX_MENSAGENS = 10; // ~5 idas e vindas
+const HISTORICO_EXPIRA_MS = 3 * 60 * 60 * 1000; // 3 horas sem mensagem = começa assunto novo
+
+function obterHistorico(phone) {
+  const h = historicos.get(phone);
+  if (!h) return [];
+  if (Date.now() - h.atualizadoEm > HISTORICO_EXPIRA_MS) {
+    historicos.delete(phone);
+    return [];
+  }
+  return h.mensagens;
+}
+
+function salvarHistorico(phone, mensagens) {
+  const cortado = mensagens.slice(-HISTORICO_MAX_MENSAGENS);
+  historicos.set(phone, { mensagens: cortado, atualizadoEm: Date.now() });
+}
+
+async function gerarRespostaMIA(phone, mensagem, imagemUrl = null) {
   try {
-    let content = [];
-    
-    // Adiciona imagem se houver
+    let contentUsuario = [];
+
     if (imagemUrl) {
-      content.push({
+      contentUsuario.push({
         type: "image",
         source: {
           type: "url",
@@ -57,24 +76,21 @@ async function gerarRespostaMIA(mensagem, imagemUrl = null) {
         },
       });
     }
-    
-    // Adiciona texto com prompt
-    content.push({
-      type: "text",
-      text: `${PROMPT_MIA}\n\n--- MENSAGEM DO VENDEDOR ---\n${mensagem}`,
-    });
+    contentUsuario.push({ type: "text", text: mensagem });
+
+    const historico = obterHistorico(phone);
+    const mensagensParaClaude = [
+      ...historico,
+      { role: "user", content: contentUsuario },
+    ];
 
     const response = await axios.post(
       "https://api.anthropic.com/v1/messages",
       {
         model: "claude-opus-4-8",
         max_tokens: 1500,
-        messages: [
-          {
-            role: "user",
-            content: content,
-          },
-        ],
+        system: PROMPT_MIA,
+        messages: mensagensParaClaude,
       },
       {
         headers: {
@@ -84,7 +100,15 @@ async function gerarRespostaMIA(mensagem, imagemUrl = null) {
       }
     );
 
-    return response.data.content[0].text;
+    const respostaTexto = response.data.content[0].text;
+
+    // Salva os dois lados da conversa para a MIA lembrar na próxima mensagem
+    salvarHistorico(phone, [
+      ...mensagensParaClaude,
+      { role: "assistant", content: respostaTexto },
+    ]);
+
+    return respostaTexto;
   } catch (error) {
     console.error("❌ Claude API error:", error.message);
     throw error;
@@ -177,7 +201,7 @@ app.post("/webhook/zapi", async (req, res) => {
 
     // Processa com Claude
     console.log(`🤖 Processando com Claude...`);
-    const resposta = await gerarRespostaMIA(mensagem, imagemUrl);
+    const resposta = await gerarRespostaMIA(phone, mensagem, imagemUrl);
     console.log(`✅ Claude respondeu (${resposta.length} chars)`);
 
     // Envia via Z-API
