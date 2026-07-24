@@ -57,6 +57,31 @@ function salvarHistorico(phone, mensagens) {
   historicos.set(phone, { mensagens: cortado, atualizadoEm: Date.now() });
 }
 
+// ============ TRANSCRIÇÃO DE ÁUDIO (Whisper via OpenAI) ============
+async function transcreverAudio(audioUrl) {
+  const audioResponse = await axios.get(audioUrl, { responseType: "arraybuffer" });
+  const audioBuffer = Buffer.from(audioResponse.data);
+
+  const form = new FormData();
+  form.append("file", new Blob([audioBuffer]), "audio.ogg");
+  form.append("model", "whisper-1");
+  form.append("language", "pt");
+
+  const response = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
+    body: form,
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Whisper API error: ${response.status} ${errText}`);
+  }
+
+  const data = await response.json();
+  return data.text;
+}
+
 async function gerarRespostaMIA(phone, mensagem, imagemUrl = null) {
   try {
     let contentUsuario = [];
@@ -187,6 +212,7 @@ app.get("/admin/debug-env", (req, res) => {
     hasZapiInstance: !!process.env.ZAPI_INSTANCE,
     hasZapiToken: !!process.env.ZAPI_TOKEN,
     hasResendKey: !!process.env.RESEND_API_KEY,
+    hasOpenAiKey: !!process.env.OPENAI_API_KEY,
   });
 });
 
@@ -251,6 +277,17 @@ app.post("/webhook/zapi", async (req, res) => {
       imagemUrl = req.body.image.imageUrl;
       mensagem = req.body.image.caption || "Vendedor enviou uma imagem";
       console.log(`📸 Imagem recebida: ${imagemUrl}`);
+    }
+    // Verifica se é ÁUDIO (transcreve com Whisper antes de mandar pro Claude)
+    else if (req.body.audio?.audioUrl) {
+      console.log(`🎤 Áudio recebido: ${req.body.audio.audioUrl}`);
+      try {
+        mensagem = await transcreverAudio(req.body.audio.audioUrl);
+        console.log(`📝 Áudio transcrito: "${mensagem.substring(0, 80)}..."`);
+      } catch (err) {
+        console.error("❌ Erro ao transcrever áudio:", err.message);
+        mensagem = "Vendedor enviou um áudio (não foi possível transcrever automaticamente — peça pra ele escrever a mensagem)";
+      }
     }
     // Tenta text como string
     else if (typeof req.body.text === 'string') {
