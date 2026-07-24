@@ -200,6 +200,8 @@ app.post("/webhook/zapi", async (req, res) => {
   // e reenviar o mesmo evento por timeout.
   res.status(200).json({ received: true });
 
+  console.log(`🔍 DIAGNOSTICO: connectedPhone=${req.body.connectedPhone} | phone=${req.body.phone} | fromMe=${req.body.fromMe} | senderName=${req.body.senderName} | chatName=${req.body.chatName}`);
+
   if (miaPausada) {
     console.log("⏸️  MIA pausada — ignorando mensagem recebida.");
     return;
