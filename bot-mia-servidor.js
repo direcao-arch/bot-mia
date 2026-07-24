@@ -195,12 +195,28 @@ app.get("/admin/status-pausa", (req, res) => {
   res.json({ pausada: miaPausada });
 });
 
+// Número/instância dedicada da MIA no Z-API. Qualquer webhook que chegue
+// com um connectedPhone diferente deste NÃO é da instância da MIA — é
+// outro número (pessoal, outro projeto, etc.) e deve ser ignorado.
+// Hardcoded como fallback porque variáveis de ambiente no Railway já
+// falharam em propagar corretamente (ver ADMIN_SECRET).
+const NUMERO_MIA_DEDICADO = process.env.NUMERO_MIA_DEDICADO || "555194753651";
+
 app.post("/webhook/zapi", async (req, res) => {
   // Responde IMEDIATAMENTE pro Z-API não esperar o processamento (Claude + envio)
   // e reenviar o mesmo evento por timeout.
   res.status(200).json({ received: true });
 
   console.log(`🔍 DIAGNOSTICO: connectedPhone=${req.body.connectedPhone} | phone=${req.body.phone} | fromMe=${req.body.fromMe} | senderName=${req.body.senderName} | chatName=${req.body.chatName}`);
+
+  // TRAVA DE SEGURANÇA: só processa webhooks que vieram da instância
+  // exclusiva da MIA. Se o Z-API (por engano de configuração de webhook,
+  // ou instância errada) mandar evento de outro número — como o WhatsApp
+  // pessoal/comercial da Katia — a MIA ignora e NÃO responde.
+  if (req.body.connectedPhone && req.body.connectedPhone !== NUMERO_MIA_DEDICADO) {
+    console.log(`🚫 Webhook de instância diferente da MIA (connectedPhone=${req.body.connectedPhone} ≠ ${NUMERO_MIA_DEDICADO}) — ignorado.`);
+    return;
+  }
 
   if (miaPausada) {
     console.log("⏸️  MIA pausada — ignorando mensagem recebida.");
