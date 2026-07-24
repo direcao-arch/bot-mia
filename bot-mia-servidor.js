@@ -214,6 +214,10 @@ app.get("/admin/debug-env", (req, res) => {
     hasResendKey: !!process.env.RESEND_API_KEY,
     hasOpenAiKey: !!process.env.OPENAI_API_KEY,
     hasZapiClientToken: !!process.env.ZAPI_CLIENT_TOKEN,
+    zapiClientTokenLength: (process.env.ZAPI_CLIENT_TOKEN || "").length,
+    zapiClientTokenPreview: process.env.ZAPI_CLIENT_TOKEN
+      ? `${process.env.ZAPI_CLIENT_TOKEN.slice(0, 2)}...${process.env.ZAPI_CLIENT_TOKEN.slice(-2)}`
+      : null,
   });
 });
 
