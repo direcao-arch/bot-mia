@@ -226,6 +226,24 @@ app.get("/admin/status-pausa", (req, res) => {
   res.json({ pausada: miaPausada });
 });
 
+// Testa a conexão real com o Z-API (status da instância) e devolve o erro
+// exato, pra diagnosticar sem depender dos logs do Railway.
+app.get("/admin/test-zapi", async (req, res) => {
+  try {
+    const url = `https://api.z-api.io/instances/${process.env.ZAPI_INSTANCE}/token/${process.env.ZAPI_TOKEN}/status`;
+    const resposta = await axios.get(url, {
+      headers: { "Client-Token": process.env.ZAPI_CLIENT_TOKEN },
+    });
+    res.json({ ok: true, status: resposta.status, data: resposta.data });
+  } catch (error) {
+    res.json({
+      ok: false,
+      status: error.response?.status || null,
+      data: error.response?.data || error.message,
+    });
+  }
+});
+
 // Número/instância dedicada da MIA no Z-API. Qualquer webhook que chegue
 // com um connectedPhone diferente deste NÃO é da instância da MIA — é
 // outro número (pessoal, outro projeto, etc.) e deve ser ignorado.
