@@ -180,6 +180,16 @@ app.get("/admin/retomar", (req, res) => {
   res.json({ pausada: false });
 });
 
+app.get("/admin/debug-env", (req, res) => {
+  res.json({
+    hasAdminSecret: !!process.env.ADMIN_SECRET,
+    adminSecretLength: (process.env.ADMIN_SECRET || "").length,
+    hasZapiInstance: !!process.env.ZAPI_INSTANCE,
+    hasZapiToken: !!process.env.ZAPI_TOKEN,
+    hasResendKey: !!process.env.RESEND_API_KEY,
+  });
+});
+
 app.get("/admin/status-pausa", (req, res) => {
   if (req.query.secret !== ADMIN_SECRET) return res.status(403).json({ error: "não autorizado" });
   res.json({ pausada: miaPausada });
