@@ -162,10 +162,38 @@ function marcarSeNova(messageId) {
   return true;
 }
 
+// ============ PAUSA DE EMERGÊNCIA (trava respostas automáticas na hora) ============
+let miaPausada = false;
+const ADMIN_SECRET = process.env.ADMIN_SECRET || "troque-este-segredo";
+
+app.get("/admin/pausar", (req, res) => {
+  if (req.query.secret !== ADMIN_SECRET) return res.status(403).json({ error: "não autorizado" });
+  miaPausada = true;
+  console.log("⏸️  MIA PAUSADA manualmente — não vai responder até retomar.");
+  res.json({ pausada: true });
+});
+
+app.get("/admin/retomar", (req, res) => {
+  if (req.query.secret !== ADMIN_SECRET) return res.status(403).json({ error: "não autorizado" });
+  miaPausada = false;
+  console.log("▶️  MIA retomada — voltou a responder normalmente.");
+  res.json({ pausada: false });
+});
+
+app.get("/admin/status-pausa", (req, res) => {
+  if (req.query.secret !== ADMIN_SECRET) return res.status(403).json({ error: "não autorizado" });
+  res.json({ pausada: miaPausada });
+});
+
 app.post("/webhook/zapi", async (req, res) => {
   // Responde IMEDIATAMENTE pro Z-API não esperar o processamento (Claude + envio)
   // e reenviar o mesmo evento por timeout.
   res.status(200).json({ received: true });
+
+  if (miaPausada) {
+    console.log("⏸️  MIA pausada — ignorando mensagem recebida.");
+    return;
+  }
 
   try {
     console.log(`\n📊 === WEBHOOK RECEBIDO ===`);
