@@ -237,6 +237,70 @@ app.post("/webhook/zapi", async (req, res) => {
   }
 });
 
+// ============ MONITORAMENTO DE CONEXÃO (alerta por email se o WhatsApp da MIA cair) ============
+const RESEND_API_KEY = process.env.RESEND_API_KEY;
+const ALERTA_EMAIL_PARA = process.env.ALERTA_EMAIL_PARA || "direcao@fyassessoria.com";
+let ultimoStatusConectado = true; // assume conectado no boot; só alerta em queda real detectada
+
+async function enviarAlertaEmail(assunto, corpo) {
+  if (!RESEND_API_KEY) {
+    console.log(`⚠️  RESEND_API_KEY não configurada — alerta não enviado (${assunto})`);
+    return;
+  }
+  try {
+    await axios.post(
+      "https://api.resend.com/emails",
+      {
+        from: "MIA Monitor <onboarding@resend.dev>",
+        to: [ALERTA_EMAIL_PARA],
+        subject: assunto,
+        text: corpo,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${RESEND_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+    console.log(`📧 Alerta enviado: ${assunto}`);
+  } catch (error) {
+    console.error("❌ Erro ao enviar email de alerta:", error.response?.data || error.message);
+  }
+}
+
+async function verificarConexaoZAPI() {
+  try {
+    const url = `https://api.z-api.io/instances/${process.env.ZAPI_INSTANCE}/token/${process.env.ZAPI_TOKEN}/status`;
+    const res = await axios.get(url, {
+      headers: { "Client-Token": process.env.ZAPI_CLIENT_TOKEN },
+    });
+
+    const conectado = res.data?.connected === true;
+    console.log(`🔎 Checagem de conexão Z-API: ${conectado ? "conectado ✅" : "DESCONECTADO ⚠️"}`);
+
+    if (!conectado && ultimoStatusConectado) {
+      await enviarAlertaEmail(
+        "⚠️ MIA desconectada do WhatsApp",
+        "A instância do WhatsApp da MIA caiu. Escaneie o QR code de novo no painel Z-API para reconectar."
+      );
+    } else if (conectado && !ultimoStatusConectado) {
+      await enviarAlertaEmail(
+        "✅ MIA reconectada",
+        "A instância do WhatsApp da MIA voltou a ficar conectada normalmente."
+      );
+    }
+
+    ultimoStatusConectado = conectado;
+  } catch (error) {
+    console.error("❌ Erro ao verificar status Z-API:", error.response?.data || error.message);
+  }
+}
+
+// Roda a cada 1 hora, e uma vez 30s depois do boot
+setInterval(verificarConexaoZAPI, 60 * 60 * 1000);
+setTimeout(verificarConexaoZAPI, 30 * 1000);
+
 // ============ HEALTH CHECK ============
 app.get("/", (req, res) => {
   res.json({
