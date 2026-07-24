@@ -163,7 +163,7 @@ function marcarSeNova(messageId) {
 }
 
 // ============ PAUSA DE EMERGÊNCIA (trava respostas automáticas na hora) ============
-let miaPausada = false;
+let miaPausada = true; // PAUSADA manualmente a pedido da Katia em 24/07 - numero sendo usado tambem como WhatsApp pessoal/de outra pessoa
 const ADMIN_SECRET = process.env.ADMIN_SECRET || "troque-este-segredo";
 
 app.get("/admin/pausar", (req, res) => {
