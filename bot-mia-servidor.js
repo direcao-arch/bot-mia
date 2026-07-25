@@ -173,6 +173,9 @@ async function enviarZ(phone, mensagem) {
     console.error(`❌ Z-API error: ${error.message}`);
     if (error.response?.data) {
       console.error(`   Response:`, error.response.data);
+      if (JSON.stringify(error.response.data).includes("client-token is not configured")) {
+        alertarErroClientToken("envio de mensagem (enviarZ)").catch(() => {});
+      }
     }
     throw error;
   }
@@ -361,6 +364,17 @@ app.post("/webhook/zapi", async (req, res) => {
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const ALERTA_EMAIL_PARA = process.env.ALERTA_EMAIL_PARA || "direcao@fyassessoria.com";
 let ultimoStatusConectado = true; // assume conectado no boot; só alerta em queda real detectada
+let ultimoAlertaTokenErro = 0; // debounce do alerta de 'client-token is not configured' (no máx 1 a cada 30min)
+
+async function alertarErroClientToken(origem) {
+  const agora = Date.now();
+  if (agora - ultimoAlertaTokenErro < 30 * 60 * 1000) return;
+  ultimoAlertaTokenErro = agora;
+  await enviarAlertaEmail(
+    "⚠️ MIA com erro do Z-API: client-token",
+    `A MIA recebeu o erro 'your client-token is not configured' do Z-API (origem: ${origem}), mesmo sem enviar esse header. Isso indica uma inconsistência no painel de Segurança do Z-API (fora do nosso controle) — abra um chamado de suporte com eles se ainda não tiver aberto. Enquanto isso, mensagens podem não estar sendo entregues aos vendedores/clientes.`
+  );
+}
 
 async function enviarAlertaEmail(assunto, corpo) {
   if (!RESEND_API_KEY) {
@@ -412,6 +426,9 @@ async function verificarConexaoZAPI() {
     ultimoStatusConectado = conectado;
   } catch (error) {
     console.error("❌ Erro ao verificar status Z-API:", error.response?.data || error.message);
+    if (JSON.stringify(error.response?.data || "").includes("client-token is not configured")) {
+      alertarErroClientToken("checagem horária de status").catch(() => {});
+    }
   }
 }
 
