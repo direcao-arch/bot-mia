@@ -58,6 +58,16 @@ function salvarHistorico(phone, mensagens) {
 }
 
 // ============ TRANSCRIÇÃO DE ÁUDIO (Whisper via OpenAI) ============
+// A conta Z-API pode ou não ter o recurso "Token de segurança da conta"
+// ativado (painel Z-API > Segurança). Enviar o header quando o recurso
+// está desativado faz o Z-API rejeitar com "client-token is not
+// configured" — então só mandamos o header se a variável existir.
+function headersZAPI() {
+  return process.env.ZAPI_CLIENT_TOKEN
+    ? { "Client-Token": process.env.ZAPI_CLIENT_TOKEN }
+    : {};
+}
+
 async function transcreverAudio(audioUrl) {
   const audioResponse = await axios.get(audioUrl, { responseType: "arraybuffer" });
   const audioBuffer = Buffer.from(audioResponse.data);
@@ -155,11 +165,7 @@ async function enviarZ(phone, mensagem) {
         phone: p,
         message: mensagem,
       },
-      {
-        headers: {
-          "Client-Token": process.env.ZAPI_CLIENT_TOKEN,
-        },
-      }
+      { headers: headersZAPI() }
     );
 
     console.log(`✅ Enviado com sucesso!`);
@@ -231,9 +237,7 @@ app.get("/admin/status-pausa", (req, res) => {
 app.get("/admin/test-zapi", async (req, res) => {
   try {
     const url = `https://api.z-api.io/instances/${process.env.ZAPI_INSTANCE}/token/${process.env.ZAPI_TOKEN}/status`;
-    const resposta = await axios.get(url, {
-      headers: { "Client-Token": process.env.ZAPI_CLIENT_TOKEN },
-    });
+    const resposta = await axios.get(url, { headers: headersZAPI() });
     res.json({ ok: true, status: resposta.status, data: resposta.data });
   } catch (error) {
     res.json({
@@ -388,9 +392,7 @@ async function enviarAlertaEmail(assunto, corpo) {
 async function verificarConexaoZAPI() {
   try {
     const url = `https://api.z-api.io/instances/${process.env.ZAPI_INSTANCE}/token/${process.env.ZAPI_TOKEN}/status`;
-    const res = await axios.get(url, {
-      headers: { "Client-Token": process.env.ZAPI_CLIENT_TOKEN },
-    });
+    const res = await axios.get(url, { headers: headersZAPI() });
 
     const conectado = res.data?.connected === true;
     console.log(`🔎 Checagem de conexão Z-API: ${conectado ? "conectado ✅" : "DESCONECTADO ⚠️"}`);
