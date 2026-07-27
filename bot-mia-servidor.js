@@ -144,8 +144,16 @@ async function gerarRespostaMIA(phone, mensagem, imagemUrl = null) {
   }
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 // ============ ENVIAR Z-API ============
-async function enviarZ(phone, mensagem) {
+// O Z-API às vezes devolve 'client-token is not configured' de forma
+// intermitente (bug/inconsistência do lado deles, já reportado ao
+// suporte). Por isso tentamos de novo algumas vezes antes de desistir.
+async function enviarZ(phone, mensagem, tentativa = 1) {
+  const MAX_TENTATIVAS = 3;
   try {
     // Garante que phone é string
     let p = String(phone).replace(/[^0-9+]/g, '');
@@ -157,7 +165,7 @@ async function enviarZ(phone, mensagem) {
 
     const url = `https://api.z-api.io/instances/${process.env.ZAPI_INSTANCE}/token/${process.env.ZAPI_TOKEN}/send-text`;
 
-    console.log(`📤 Enviando para Z-API... [${p}]`);
+    console.log(`📤 Enviando para Z-API... [${p}] (tentativa ${tentativa}/${MAX_TENTATIVAS})`);
     
     const res = await axios.post(
       url,
@@ -171,11 +179,21 @@ async function enviarZ(phone, mensagem) {
     console.log(`✅ Enviado com sucesso!`);
   } catch (error) {
     console.error(`❌ Z-API error: ${error.message}`);
-    if (error.response?.data) {
-      console.error(`   Response:`, error.response.data);
-      if (JSON.stringify(error.response.data).includes("client-token is not configured")) {
-        alertarErroClientToken("envio de mensagem (enviarZ)").catch(() => {});
-      }
+    const dadosErro = error.response?.data;
+    if (dadosErro) {
+      console.error(`   Response:`, dadosErro);
+    }
+
+    const ehErroClientToken = JSON.stringify(dadosErro || "").includes("client-token is not configured");
+
+    if (ehErroClientToken && tentativa < MAX_TENTATIVAS) {
+      console.log(`🔁 Retentando em 3s (erro client-token intermitente)...`);
+      await sleep(3000);
+      return enviarZ(phone, mensagem, tentativa + 1);
+    }
+
+    if (ehErroClientToken) {
+      alertarErroClientToken("envio de mensagem (enviarZ) - esgotou as tentativas").catch(() => {});
     }
     throw error;
   }
