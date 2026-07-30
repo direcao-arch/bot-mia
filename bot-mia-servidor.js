@@ -439,6 +439,9 @@ const UAZAPI_INSTANCE_ID = process.env.UAZAPI_INSTANCE_ID || "";
 app.post("/webhook/uazapi", async (req, res) => {
   res.status(200).json({ received: true });
 
+  console.log(`🔍 RAW BODY (Uazapi) keys:`, Object.keys(req.body || {}));
+  console.log(`🔍 RAW BODY (Uazapi):`, JSON.stringify(req.body || {}).substring(0, 2000));
+
   const { event, instance, data } = req.body || {};
 
   console.log(`🔍 DIAGNOSTICO (Uazapi): event=${event} | instance=${instance} | chatid=${data?.chatid} | fromMe=${data?.fromMe} | isGroup=${data?.isGroup} | senderName=${data?.senderName} | wasSentByApi=${data?.wasSentByApi}`);
