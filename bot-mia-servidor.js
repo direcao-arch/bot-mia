@@ -439,15 +439,17 @@ const UAZAPI_INSTANCE_ID = process.env.UAZAPI_INSTANCE_ID || "";
 app.post("/webhook/uazapi", async (req, res) => {
   res.status(200).json({ received: true });
 
-  console.log(`🔍 RAW BODY (Uazapi) keys:`, Object.keys(req.body || {}));
-  console.log(`🔍 RAW BODY (Uazapi):`, JSON.stringify(req.body || {}).substring(0, 2000));
+  // Formato real observado (diferente do descrito na doc pública):
+  // { EventType, instanceName, chat: {...}, message: { chatid, content, fromMe, isGroup, mediaType, id, ... } }
+  const evento = req.body?.EventType;
+  const instanceName = req.body?.instanceName;
+  const chat = req.body?.chat || {};
+  const msg = req.body?.message || {};
 
-  const { event, instance, data } = req.body || {};
+  console.log(`🔍 DIAGNOSTICO (Uazapi): EventType=${evento} | instanceName=${instanceName} | chatid=${msg.chatid} | fromMe=${msg.fromMe} | isGroup=${msg.isGroup} | senderName=${chat.name} | mediaType=${msg.mediaType}`);
 
-  console.log(`🔍 DIAGNOSTICO (Uazapi): event=${event} | instance=${instance} | chatid=${data?.chatid} | fromMe=${data?.fromMe} | isGroup=${data?.isGroup} | senderName=${data?.senderName} | wasSentByApi=${data?.wasSentByApi}`);
-
-  if (UAZAPI_INSTANCE_ID && instance && instance !== UAZAPI_INSTANCE_ID) {
-    console.log(`🚫 Webhook de instância diferente da MIA (instance=${instance} ≠ ${UAZAPI_INSTANCE_ID}) — ignorado.`);
+  if (UAZAPI_INSTANCE_ID && instanceName && instanceName !== UAZAPI_INSTANCE_ID) {
+    console.log(`🚫 Webhook de instância diferente da MIA (instanceName=${instanceName} ≠ ${UAZAPI_INSTANCE_ID}) — ignorado.`);
     return;
   }
 
@@ -456,21 +458,22 @@ app.post("/webhook/uazapi", async (req, res) => {
     return;
   }
 
-  // Só nos interessam mensagens novas recebidas (não as que a própria API enviou)
-  if (event !== "messages" || !data) return;
-  if (data.fromMe || data.wasSentByApi) return;
+  // Só nos interessam mensagens novas recebidas (a própria Uazapi já filtra
+  // wasSentByApi via excludeMessages configurado no webhook; fromMe é reforço extra)
+  if (evento !== "messages" || !req.body?.message) return;
+  if (msg.fromMe) return;
 
   try {
     console.log(`\n📊 === WEBHOOK UAZAPI RECEBIDO ===`);
 
-    const messageId = data.messageid || data.id;
+    const messageId = msg.id;
     if (!marcarSeNova(messageId)) {
       console.log(`⏭️  Duplicata ignorada (messageId: ${messageId})`);
       return;
     }
 
     // chatid vem no formato JID (ex: 5511999999999@s.whatsapp.net) — extrai só os números
-    const phone = String(data.chatid || data.sender || "").split("@")[0];
+    const phone = String(msg.chatid || "").split("@")[0];
     if (!phone) {
       console.error("❌ Phone não encontrado (Uazapi)");
       return;
@@ -480,27 +483,27 @@ app.post("/webhook/uazapi", async (req, res) => {
     let mensagem = null;
     let imagemUrl = null;
 
-    const tipo = data.messageType || "";
+    const tipo = (msg.mediaType || "").toLowerCase();
 
-    if (tipo.toLowerCase().includes("image") && data.fileURL) {
-      imagemUrl = data.fileURL;
-      mensagem = data.text || "Vendedor enviou uma imagem";
+    if (tipo.includes("image") && msg.content) {
+      imagemUrl = msg.content;
+      mensagem = msg.caption || "Vendedor enviou uma imagem";
       console.log(`📸 Imagem recebida: ${imagemUrl}`);
-    } else if (tipo.toLowerCase().includes("audio") && data.fileURL) {
-      console.log(`🎤 Áudio recebido: ${data.fileURL}`);
+    } else if (tipo.includes("audio") && msg.content) {
+      console.log(`🎤 Áudio recebido: ${msg.content}`);
       try {
-        mensagem = await transcreverAudio(data.fileURL);
+        mensagem = await transcreverAudio(msg.content);
         console.log(`📝 Áudio transcrito: "${mensagem.substring(0, 80)}..."`);
       } catch (err) {
         console.error("❌ Erro ao transcrever áudio:", err.message);
         mensagem = "Vendedor enviou um áudio (não foi possível transcrever automaticamente — peça pra ele escrever a mensagem)";
       }
-    } else if (data.text) {
-      mensagem = data.text;
-      console.log(`✅ Obtido de: data.text`);
+    } else if (msg.content) {
+      mensagem = msg.content;
+      console.log(`✅ Obtido de: message.content`);
     } else {
       mensagem = "Vendedor enviou uma mensagem";
-      console.log(`⚠️  Usando fallback (Uazapi) — messageType: ${tipo}`);
+      console.log(`⚠️  Usando fallback (Uazapi) — mediaType: ${tipo}`);
     }
 
     console.log(`💬 Mensagem: "${mensagem.substring(0, 50)}..."`);
