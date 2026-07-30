@@ -199,6 +199,40 @@ async function enviarZ(phone, mensagem, tentativa = 1) {
   }
 }
 
+// ============ ENVIAR UAZAPI (novo provedor, substituindo o Z-API) ============
+async function enviarUazapi(phone, mensagem, tentativa = 1) {
+  const MAX_TENTATIVAS = 3;
+  try {
+    let p = String(phone).replace(/[^0-9+]/g, '');
+    if (!p.startsWith('55') && !p.startsWith('+55')) {
+      p = '55' + p;
+    }
+
+    const url = `https://${process.env.UAZAPI_SUBDOMAIN}.uazapi.com/send/text`;
+
+    console.log(`📤 Enviando para Uazapi... [${p}] (tentativa ${tentativa}/${MAX_TENTATIVAS})`);
+
+    await axios.post(
+      url,
+      { number: p, text: mensagem },
+      { headers: { token: process.env.UAZAPI_TOKEN } }
+    );
+
+    console.log(`✅ Enviado com sucesso (Uazapi)!`);
+  } catch (error) {
+    console.error(`❌ Uazapi error: ${error.message}`);
+    if (error.response?.data) {
+      console.error(`   Response:`, error.response.data);
+    }
+    if (tentativa < MAX_TENTATIVAS) {
+      console.log(`🔁 Retentando em 3s...`);
+      await sleep(3000);
+      return enviarUazapi(phone, mensagem, tentativa + 1);
+    }
+    throw error;
+  }
+}
+
 // ============ WEBHOOK ============
 // ============ DEDUPLICAÇÃO (Z-API às vezes reenvia o mesmo evento) ============
 const mensagensProcessadas = new Set();
@@ -245,7 +279,26 @@ app.get("/admin/debug-env", (req, res) => {
     zapiClientTokenPreview: process.env.ZAPI_CLIENT_TOKEN
       ? `${process.env.ZAPI_CLIENT_TOKEN.slice(0, 2)}...${process.env.ZAPI_CLIENT_TOKEN.slice(-2)}`
       : null,
+    hasUazapiSubdomain: !!process.env.UAZAPI_SUBDOMAIN,
+    uazapiSubdomain: process.env.UAZAPI_SUBDOMAIN || null,
+    hasUazapiToken: !!process.env.UAZAPI_TOKEN,
+    hasUazapiInstanceId: !!process.env.UAZAPI_INSTANCE_ID,
   });
+});
+
+// Testa a conexão real com a Uazapi (status da instância).
+app.get("/admin/test-uazapi", async (req, res) => {
+  try {
+    const url = `https://${process.env.UAZAPI_SUBDOMAIN}.uazapi.com/instance/status`;
+    const resposta = await axios.get(url, { headers: { token: process.env.UAZAPI_TOKEN } });
+    res.json({ ok: true, status: resposta.status, data: resposta.data });
+  } catch (error) {
+    res.json({
+      ok: false,
+      status: error.response?.status || null,
+      data: error.response?.data || error.message,
+    });
+  }
 });
 
 app.get("/admin/status-pausa", (req, res) => {
@@ -375,6 +428,88 @@ app.post("/webhook/zapi", async (req, res) => {
 
   } catch (error) {
     console.error(`\n❌ ERRO NO WEBHOOK:`, error.message);
+  }
+});
+
+// ============ WEBHOOK UAZAPI (novo provedor) ============
+// ID da instância dedicada da MIA na Uazapi. Filtra qualquer evento que
+// não seja dessa instância (mesma lógica de segurança usada no Z-API).
+const UAZAPI_INSTANCE_ID = process.env.UAZAPI_INSTANCE_ID || "";
+
+app.post("/webhook/uazapi", async (req, res) => {
+  res.status(200).json({ received: true });
+
+  const { event, instance, data } = req.body || {};
+
+  console.log(`🔍 DIAGNOSTICO (Uazapi): event=${event} | instance=${instance} | chatid=${data?.chatid} | fromMe=${data?.fromMe} | isGroup=${data?.isGroup} | senderName=${data?.senderName} | wasSentByApi=${data?.wasSentByApi}`);
+
+  if (UAZAPI_INSTANCE_ID && instance && instance !== UAZAPI_INSTANCE_ID) {
+    console.log(`🚫 Webhook de instância diferente da MIA (instance=${instance} ≠ ${UAZAPI_INSTANCE_ID}) — ignorado.`);
+    return;
+  }
+
+  if (miaPausada) {
+    console.log("⏸️  MIA pausada — ignorando mensagem recebida.");
+    return;
+  }
+
+  // Só nos interessam mensagens novas recebidas (não as que a própria API enviou)
+  if (event !== "messages" || !data) return;
+  if (data.fromMe || data.wasSentByApi) return;
+
+  try {
+    console.log(`\n📊 === WEBHOOK UAZAPI RECEBIDO ===`);
+
+    const messageId = data.messageid || data.id;
+    if (!marcarSeNova(messageId)) {
+      console.log(`⏭️  Duplicata ignorada (messageId: ${messageId})`);
+      return;
+    }
+
+    // chatid vem no formato JID (ex: 5511999999999@s.whatsapp.net) — extrai só os números
+    const phone = String(data.chatid || data.sender || "").split("@")[0];
+    if (!phone) {
+      console.error("❌ Phone não encontrado (Uazapi)");
+      return;
+    }
+    console.log(`📱 Phone: ${phone}`);
+
+    let mensagem = null;
+    let imagemUrl = null;
+
+    const tipo = data.messageType || "";
+
+    if (tipo.toLowerCase().includes("image") && data.fileURL) {
+      imagemUrl = data.fileURL;
+      mensagem = data.text || "Vendedor enviou uma imagem";
+      console.log(`📸 Imagem recebida: ${imagemUrl}`);
+    } else if (tipo.toLowerCase().includes("audio") && data.fileURL) {
+      console.log(`🎤 Áudio recebido: ${data.fileURL}`);
+      try {
+        mensagem = await transcreverAudio(data.fileURL);
+        console.log(`📝 Áudio transcrito: "${mensagem.substring(0, 80)}..."`);
+      } catch (err) {
+        console.error("❌ Erro ao transcrever áudio:", err.message);
+        mensagem = "Vendedor enviou um áudio (não foi possível transcrever automaticamente — peça pra ele escrever a mensagem)";
+      }
+    } else if (data.text) {
+      mensagem = data.text;
+      console.log(`✅ Obtido de: data.text`);
+    } else {
+      mensagem = "Vendedor enviou uma mensagem";
+      console.log(`⚠️  Usando fallback (Uazapi) — messageType: ${tipo}`);
+    }
+
+    console.log(`💬 Mensagem: "${mensagem.substring(0, 50)}..."`);
+
+    console.log(`🤖 Processando com Claude...`);
+    const resposta = await gerarRespostaMIA(phone, mensagem, imagemUrl);
+    console.log(`✅ Claude respondeu (${resposta.length} chars)`);
+
+    await enviarUazapi(phone, resposta);
+
+  } catch (error) {
+    console.error(`\n❌ ERRO NO WEBHOOK UAZAPI:`, error.message);
   }
 });
 
